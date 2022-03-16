@@ -1,0 +1,15 @@
+version: '3'
+services:
+    nginx:
+        container_name: nginx
+        image: nginx:gradio
+        restart: always
+        ports:
+          - "44447:80"
+        depends_on:
+          - gradio
+
+    gradio:
+        container_name: gradio
+        image: gradio
+        restart: always
