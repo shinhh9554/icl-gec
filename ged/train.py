@@ -4,7 +4,10 @@ import logging
 from typing import Optional
 from dataclasses import dataclass, field
 
+<<<<<<< HEAD
 import evaluate
+=======
+>>>>>>> github/develop
 from datasets import load_dataset
 from transformers import (
     ElectraConfig,
@@ -307,8 +310,12 @@ def main():
         max_length=data_args.max_seq_length
     )
 
+<<<<<<< HEAD
     # Metrics
     metric = evaluate.load("seqeval")
+=======
+    #
+>>>>>>> github/develop
 
 
     print()
