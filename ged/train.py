@@ -4,10 +4,6 @@ import logging
 from typing import Optional
 from dataclasses import dataclass, field
 
-<<<<<<< HEAD
-import evaluate
-=======
->>>>>>> github/develop
 from datasets import load_dataset
 from transformers import (
     ElectraConfig,
@@ -309,16 +305,6 @@ def main():
         padding=padding,
         max_length=data_args.max_seq_length
     )
-
-<<<<<<< HEAD
-    # Metrics
-    metric = evaluate.load("seqeval")
-=======
-    #
->>>>>>> github/develop
-
-
-    print()
 
 if __name__ == '__main__':
     main()
