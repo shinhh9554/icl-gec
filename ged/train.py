@@ -5,7 +5,9 @@ from typing import Optional
 from dataclasses import dataclass, field
 
 import evaluate
+import numpy as np
 from datasets import load_dataset
+from seqeval.metrics import classification_report
 from transformers import (
     ElectraConfig,
     ElectraForTokenClassification,
@@ -13,7 +15,8 @@ from transformers import (
     IntervalStrategy,
     HfArgumentParser,
     DataCollatorForTokenClassification,
-    set_seed
+    set_seed,
+    Trainer
 )
 
 from tokenization_kocharelectra import KoCharElectraTokenizer
@@ -27,6 +30,9 @@ class TrainingArguments(TrainingArguments):
         default='../output',
         metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
     )
+    learning_rate: float = field(
+        default=5e-5,
+        metadata={"help": "The initial learning rate for AdamW."})
 
 
 @dataclass
@@ -37,21 +43,7 @@ class ModelArguments:
 
     model_name_or_path: str = field(
         default="klue/roberta-small",
-        metadata={
-            "help": "Path to pretrained model or model identifier from huggingface.co/models"
-        },
-    )
-    finetuned_mrc_model_path: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Pretrained config name or path if not the same as model_name"
-        },
-    )
-    additional_model: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": "Attach additional layer to end of model"
-        },
+        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
     )
 
 
@@ -72,14 +64,6 @@ class DataTrainingArguments:
         default="data/ged_test.jsonl",
         metadata={"help": "An optional input test data file to predict on (a csv or JSON file)."},
     )
-    dataset_name: Optional[str] = field(
-        default="basic",
-        metadata={"help": "The name of the dataset to use. ['basic', 'concat', 'preprocess']"},
-    )
-    overwrite_cache: bool = field(
-        default=False,
-        metadata={"help": "Overwrite the cached training and evaluation sets"},
-    )
     preprocessing_num_workers: Optional[int] = field(
         default=None,
         metadata={"help": "The number of processes to use for the preprocessing."},
@@ -89,27 +73,6 @@ class DataTrainingArguments:
         metadata={
             "help": "The maximum total input sequence length after tokenization. Sequences longer "
                     "than this will be truncated, sequences shorter will be padded."
-        },
-    )
-    pad_to_max_length: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether to pad all samples to `max_seq_length`. "
-                    "If False, will pad the samples dynamically when batching to the maximum length in the batch (which can "
-                    "be faster on GPU but will be slower on TPU)."
-        },
-    )
-    doc_stride: int = field(
-        default=128,
-        metadata={
-            "help": "When splitting up a long document into chunks, how much stride to take between chunks."
-        },
-    )
-    max_answer_length: int = field(
-        default=30,
-        metadata={
-            "help": "The maximum length of an answer that can be generated. This is needed because the start "
-                    "and end predictions are not conditioned on one another."
         },
     )
 
@@ -206,6 +169,8 @@ def main():
         return tokenized_inputs
 
     if training_args.do_train:
+        if "train" not in raw_datasets:
+            raise ValueError("--do_train requires a train dataset")
         train_dataset = raw_datasets["train"]
         train_dataset = train_dataset.map(
             tokenize_and_align_labels,
@@ -215,6 +180,8 @@ def main():
         )
 
     if training_args.do_eval:
+        if "validation" not in raw_datasets:
+            raise ValueError("--do_eval requires a validation dataset")
         eval_dataset = raw_datasets["validation"]
         eval_dataset = eval_dataset.map(
             tokenize_and_align_labels,
@@ -225,6 +192,8 @@ def main():
         )
 
     if training_args.do_predict:
+        if "test" not in raw_datasets:
+            raise ValueError("--do_predict requires a test dataset")
         predict_dataset = raw_datasets["test"]
         predict_dataset = predict_dataset.map(
             tokenize_and_align_labels,
@@ -240,6 +209,69 @@ def main():
         padding=padding,
         max_length=data_args.max_seq_length
     )
+
+    # Metrics
+    metric = evaluate.load("seqeval")
+
+    def compute_metrics(p):
+        predictions, labels = p
+        predictions = np.argmax(predictions, axis=2)
+
+        # Remove ignored index (special tokens)
+        true_predictions = [
+            [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
+            for prediction, label in zip(predictions, labels)
+        ]
+        true_labels = [
+            [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
+            for prediction, label in zip(predictions, labels)
+        ]
+
+        results = metric.compute(predictions=true_predictions, references=true_labels)
+
+        print(classification_report(true_labels, true_predictions))
+
+        return {
+            "precision": results["overall_precision"],
+            "recall": results["overall_recall"],
+            "f1": results["overall_f1"],
+            "accuracy": results["overall_accuracy"],
+        }
+
+    # Initialize our Trainer
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset if training_args.do_train else None,
+        eval_dataset=eval_dataset if training_args.do_eval else None,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+    )
+
+    # Training
+    if training_args.do_train:
+        train_result = trainer.train()
+        metrics = train_result.metrics
+        trainer.save_model()  # Saves the tokenizer too for easy upload
+
+        metrics["train_samples"] = len(train_dataset)
+
+        trainer.log_metrics("train", metrics)
+        trainer.save_metrics("train", metrics)
+        trainer.save_state()
+
+    # Evaluation
+    if training_args.do_eval:
+        logger.info("*** Evaluate ***")
+
+        metrics = trainer.evaluate()
+
+        metrics["eval_samples"] = len(eval_dataset)
+
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+
 
 if __name__ == '__main__':
     main()
