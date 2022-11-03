@@ -1,11 +1,13 @@
 import os
 import sys
 import logging
-from typing import Optional
+from typing import Optional, Union
 from dataclasses import dataclass, field
 
 import evaluate
+import datasets
 import numpy as np
+import transformers
 from datasets import load_dataset
 from seqeval.metrics import classification_report
 from transformers import (
@@ -27,12 +29,49 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TrainingArguments(TrainingArguments):
     output_dir: str = field(
-        default='../output',
+        default='output',
         metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
+    )
+    do_train: bool = field(
+        default=True,
+        metadata={"help": "Whether to run training."}
+    )
+    do_eval: bool = field(
+        default=True,
+        metadata={"help": "Whether to run eval on the dev set."}
+    )
+    do_predict: bool = field(
+        default=False,
+        metadata={"help": "Whether to run predictions on the test set."}
     )
     learning_rate: float = field(
         default=5e-5,
-        metadata={"help": "The initial learning rate for AdamW."})
+        metadata={"help": "The initial learning rate for AdamW."}
+    )
+    num_train_epochs: float = field(
+        default=5.0,
+        metadata={"help": "Total number of training epochs to perform."}
+    )
+    evaluation_strategy: Union[IntervalStrategy, str] = field(
+        default="epoch",
+        metadata={"help": "The evaluation strategy to use."},
+    )
+    per_device_train_batch_size: int = field(
+        default=200,
+        metadata={"help": "Batch size per GPU/TPU core/CPU for training."}
+    )
+    per_device_eval_batch_size: int = field(
+        default=200,
+        metadata={"help": "Batch size per GPU/TPU core/CPU for evaluation."}
+    )
+    logging_steps: int = field(
+        default=50,
+        metadata={"help": "Log every X updates steps."}
+    )
+    save_strategy: Union[IntervalStrategy, str] = field(
+        default="epoch",
+        metadata={"help": "The checkpoint save strategy to use."},
+    )
 
 
 @dataclass
@@ -42,7 +81,7 @@ class ModelArguments:
     """
 
     model_name_or_path: str = field(
-        default="klue/roberta-small",
+        default="monologg/kocharelectra-base-discriminator",
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
     )
 
@@ -69,7 +108,7 @@ class DataTrainingArguments:
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_seq_length: int = field(
-        default=384,
+        default=128,
         metadata={
             "help": "The maximum total input sequence length after tokenization. Sequences longer "
                     "than this will be truncated, sequences shorter will be padded."
@@ -94,6 +133,10 @@ def main():
 
     log_level = training_args.get_process_log_level()
     logger.setLevel(log_level)
+    datasets.utils.logging.set_verbosity(log_level)
+    transformers.utils.logging.set_verbosity(log_level)
+    transformers.utils.logging.enable_default_handler()
+    transformers.utils.logging.enable_explicit_format()
 
     # Log on each process the small summary:
     logger.warning(
@@ -153,16 +196,16 @@ def main():
     model.config.id2label = {i: l for i, l in enumerate(label_list)}
 
     # Preprocessing the datasets.
-    padding = "max_length"
     def tokenize_and_align_labels(examples):
         tokenized_inputs = tokenizer(
             examples[text_column_name],
-            truncation=True
+            truncation=True,
+            max_length=data_args.max_seq_length
         )
 
         labels = []
         for i, label in enumerate(examples[label_column_name]):
-            label_ids = [label_to_id['O']] + [label_to_id[tag] for tag in label.split()] + [label_to_id['O']]
+            label_ids = [-100] + [label_to_id[tag] for tag in label.split()][:data_args.max_seq_length-2]+ [-100]
             labels.append(label_ids)
 
         tokenized_inputs["labels"] = labels
@@ -187,7 +230,6 @@ def main():
             tokenize_and_align_labels,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            load_from_cache_file=not data_args.overwrite_cache,
             desc="Running tokenizer on validation dataset",
         )
 
@@ -199,15 +241,13 @@ def main():
             tokenize_and_align_labels,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            load_from_cache_file=not data_args.overwrite_cache,
             desc="Running tokenizer on prediction dataset",
         )
 
     # Data collator
     data_collator = DataCollatorForTokenClassification(
         tokenizer=tokenizer,
-        padding=padding,
-        max_length=data_args.max_seq_length
+        padding=True,
     )
 
     # Metrics
@@ -244,7 +284,6 @@ def main():
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
-        tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
