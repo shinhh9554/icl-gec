@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from dataclasses import dataclass, field
 
+import evaluate
 from datasets import load_dataset
 from transformers import (
     ElectraConfig,
