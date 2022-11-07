@@ -11,9 +11,9 @@ from transformers import (
 	Trainer
 )
 
-from ged.utils.metric import Metric
-from ged.utils.processor import Preprocessor
-from ged.utils.tokenization_kocharelectra import KoCharElectraTokenizer
+from metric import Metric
+from processor import Preprocessor
+from tokenization_kocharelectra import KoCharElectraTokenizer
 
 def parse_args():
 	parser = argparse.ArgumentParser()

@@ -11,8 +11,8 @@ from transformers import (
 	Seq2SeqTrainer
 )
 
-from gec.utils.metric import Metric
-from gec.utils.processor import Preprocessor
+from metric import Metric
+from processor import Preprocessor
 
 
 def parse_args():
