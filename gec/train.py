@@ -1,8 +1,7 @@
 import torch
 import argparse
 
-import numpy as np
-from datasets import load_dataset, load_metric
+from datasets import load_dataset
 from transformers import (
 	PreTrainedTokenizerFast,
 	BartForConditionalGeneration,
@@ -11,6 +10,9 @@ from transformers import (
 	set_seed,
 	Seq2SeqTrainer
 )
+
+from utils.processor import Preprocessor
+from utils.metric import Metric
 
 
 def parse_args():
@@ -30,8 +32,8 @@ def parse_args():
 	parser.add_argument("--seed", default=42, type=int)
 	parser.add_argument("--output_dir", default='output', type=str)
 	parser.add_argument("--num_train_epochs", default=5.0, type=float)
-	parser.add_argument("--per_device_train_batch_size", default=100, type=int)
-	parser.add_argument("--per_device_eval_batch_size", default=100, type=int)
+	parser.add_argument("--per_device_train_batch_size", default=96, type=int)
+	parser.add_argument("--per_device_eval_batch_size", default=96, type=int)
 	parser.add_argument("--gradient_accumulation_steps", default=1, type=int)
 	parser.add_argument("--learning_rate", default=5e-5, type=float)
 	parser.add_argument("--weight_decay", default=0.001, type=float)
@@ -64,22 +66,12 @@ def main():
 	model = BartForConditionalGeneration.from_pretrained(args.model_name_or_path)
 
 	# Preprocessing Datasets
-	def preprocess_function(examples):
-		inputs = examples["error"]
-		targets = examples["correct"]
-
-		# Tokenize inputs/targets
-		model_inputs = tokenizer(inputs, max_length=args.max_input_length, truncation=True)
-		labels = tokenizer(text_target=targets, max_length=args.max_target_length-1, truncation=True)
-
-		# add eos_token_id
-		model_inputs["labels"] = [target_ids + [tokenizer.eos_token_id] for target_ids in labels["input_ids"]]
-		return model_inputs
+	preprocessor = Preprocessor(args, tokenizer)
 
 	# Train dataset
 	train_dataset = raw_datasets["train"]
 	train_dataset = train_dataset.map(
-		preprocess_function,
+		preprocessor.preprocess_function,
 		batched=True,
 		num_proc=args.preprocessing_num_workers,
 		desc="Running tokenizer on train dataset",
@@ -88,14 +80,11 @@ def main():
 	# Valid dataset
 	eval_dataset = raw_datasets["validation"]
 	eval_dataset = eval_dataset.map(
-		preprocess_function,
+		preprocessor.preprocess_function,
 		batched=True,
 		num_proc=args.preprocessing_num_workers,
 		desc="Running tokenizer on validation dataset",
 	)
-
-	# Data Collator
-	data_collator = DataCollatorForSeq2Seq(tokenizer, model)
 
 	# Set warmup steps
 	total_batch_size = args.per_device_train_batch_size * torch.cuda.device_count()
@@ -122,25 +111,11 @@ def main():
 		predict_with_generate=True,
 	)
 
+	# Data Collator
+	data_collator = DataCollatorForSeq2Seq(tokenizer, model)
+
 	# Metrics
-	metric = load_metric("sacrebleu")
-	def compute_metrics(eval_preds):
-		preds, labels = eval_preds
-		if isinstance(preds, tuple):
-			preds = preds[0]
-
-		decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-
-		labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-		decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-		decoded_preds = [pred.strip() for pred in decoded_preds]
-		decoded_labels = [[label.strip()] for label in decoded_labels]
-
-		result = metric.compute(predictions=decoded_preds, references=decoded_labels)
-		result = {"bleu": result["score"]}
-
-		return result
+	metrics = Metric(tokenizer)
 
 	# Trainer
 	trainer = Seq2SeqTrainer(
@@ -150,7 +125,7 @@ def main():
 		eval_dataset=eval_dataset,
 		tokenizer=tokenizer,
 		data_collator=data_collator,
-		compute_metrics=compute_metrics
+		compute_metrics=metrics.compute_metrics
 	)
 
 	# Training
