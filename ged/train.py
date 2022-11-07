@@ -1,319 +1,166 @@
-import os
-import sys
-import logging
-from typing import Optional, Union
-from dataclasses import dataclass, field
+import argparse
 
-import evaluate
-import datasets
-import numpy as np
-import transformers
+import torch
 from datasets import load_dataset
-from seqeval.metrics import classification_report
 from transformers import (
-    ElectraConfig,
-    ElectraForTokenClassification,
-    TrainingArguments,
-    IntervalStrategy,
-    HfArgumentParser,
-    DataCollatorForTokenClassification,
-    set_seed,
-    Trainer
+	ElectraConfig,
+	ElectraForTokenClassification,
+	TrainingArguments,
+	DataCollatorForTokenClassification,
+	set_seed,
+	Trainer
 )
 
-from tokenization_kocharelectra import KoCharElectraTokenizer
+from ged.utils.metric import Metric
+from ged.utils.processor import Preprocessor
+from ged.utils.tokenization_kocharelectra import KoCharElectraTokenizer
 
-logger = logging.getLogger(__name__)
+def parse_args():
+	parser = argparse.ArgumentParser()
 
+	# Model arguments
+	parser.add_argument("--model_name_or_path", default='gogamza/kobart-base-v2', type=str)
 
-@dataclass
-class TrainingArguments(TrainingArguments):
-    output_dir: str = field(
-        default='output',
-        metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
-    )
-    do_train: bool = field(
-        default=True,
-        metadata={"help": "Whether to run training."}
-    )
-    do_eval: bool = field(
-        default=True,
-        metadata={"help": "Whether to run eval on the dev set."}
-    )
-    do_predict: bool = field(
-        default=False,
-        metadata={"help": "Whether to run predictions on the test set."}
-    )
-    learning_rate: float = field(
-        default=5e-5,
-        metadata={"help": "The initial learning rate for AdamW."}
-    )
-    num_train_epochs: float = field(
-        default=5.0,
-        metadata={"help": "Total number of training epochs to perform."}
-    )
-    evaluation_strategy: Union[IntervalStrategy, str] = field(
-        default="epoch",
-        metadata={"help": "The evaluation strategy to use."},
-    )
-    per_device_train_batch_size: int = field(
-        default=200,
-        metadata={"help": "Batch size per GPU/TPU core/CPU for training."}
-    )
-    per_device_eval_batch_size: int = field(
-        default=200,
-        metadata={"help": "Batch size per GPU/TPU core/CPU for evaluation."}
-    )
-    logging_steps: int = field(
-        default=50,
-        metadata={"help": "Log every X updates steps."}
-    )
-    save_strategy: Union[IntervalStrategy, str] = field(
-        default="epoch",
-        metadata={"help": "The checkpoint save strategy to use."},
-    )
+	# Dataset arguments
+	parser.add_argument("--train_file", default='data/gec_train.jsonl', type=str)
+	parser.add_argument("--validation_file", default='data/gec_valid.jsonl', type=str)
+	parser.add_argument("--max_seq_length", default=128, type=int)
+	parser.add_argument("--preprocessing_num_workers", default=1, type=int)
 
+	# Training arguments
+	parser.add_argument("--seed", default=42, type=int)
+	parser.add_argument("--output_dir", default='output', type=str)
+	parser.add_argument("--num_train_epochs", default=5.0, type=float)
+	parser.add_argument("--per_device_train_batch_size", default=96, type=int)
+	parser.add_argument("--per_device_eval_batch_size", default=96, type=int)
+	parser.add_argument("--gradient_accumulation_steps", default=1, type=int)
+	parser.add_argument("--learning_rate", default=5e-5, type=float)
+	parser.add_argument("--weight_decay", default=0.001, type=float)
+	parser.add_argument("--warmup_ratio", default=0.05, type=float)
+	parser.add_argument("--fp16", default=True, type=bool)
+	parser.add_argument("--evaluation_strategy", default='epoch', type=str)
+	parser.add_argument("--logging_steps", default=50, type=int)
+	parser.add_argument("--save_strategy", default='epoch', type=str)
+	parser.add_argument("--load_best_model_at_end", default=True, type=bool)
+	parser.add_argument("--metric_for_best_model", default='bleu', type=str)
 
-@dataclass
-class ModelArguments:
-    """
-    Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
-    """
+	args = parser.parse_args()
 
-    model_name_or_path: str = field(
-        default="monologg/kocharelectra-base-discriminator",
-        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
-    )
-
-
-@dataclass
-class DataTrainingArguments:
-    """
-    Arguments pertaining to what data we are going to input our model for training and eval.
-    """
-    train_file: Optional[str] = field(
-        default="data/ged_train.jsonl",
-        metadata={"help": "The input training data file (a csv or JSON file)."}
-    )
-    validation_file: Optional[str] = field(
-        default="data/ged_valid.jsonl",
-        metadata={"help": "An optional input evaluation data file to evaluate on (a csv or JSON file)."},
-    )
-    test_file: Optional[str] = field(
-        default="data/ged_test.jsonl",
-        metadata={"help": "An optional input test data file to predict on (a csv or JSON file)."},
-    )
-    preprocessing_num_workers: Optional[int] = field(
-        default=None,
-        metadata={"help": "The number of processes to use for the preprocessing."},
-    )
-    max_seq_length: int = field(
-        default=128,
-        metadata={
-            "help": "The maximum total input sequence length after tokenization. Sequences longer "
-                    "than this will be truncated, sequences shorter will be padded."
-        },
-    )
+	return args
 
 
 def main():
-    # Load Argument
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+	# Parse the arguments
+	args = parse_args()
 
-    # Set seed before initializing model.
-    set_seed(training_args.seed)
+	# Seed
+	set_seed(args.seed)
 
-    # Set logging
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s -    %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+	# Loading Datasets
+	data_files = {"train": args.train_file, "validation": args.validation_file}
+	raw_datasets = load_dataset('json', data_files=data_files)
 
-    log_level = training_args.get_process_log_level()
-    logger.setLevel(log_level)
-    datasets.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.enable_default_handler()
-    transformers.utils.logging.enable_explicit_format()
+	# Get unique labels
+	def get_label_list(labels):
+		unique_labels = set()
+		for label in labels:
+			unique_labels = unique_labels | set(label.split())
+		label_list = list(unique_labels)
+		label_list.sort()
+		return label_list
 
-    # Log on each process the small summary:
-    logger.warning(
-        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu} "
-        + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
-    )
+	label_list = get_label_list(raw_datasets["train"]['tag'])
+	label_to_id = {l: i for i, l in enumerate(label_list)}
+	num_labels = len(label_list)
 
-    # Get the datasets
-    data_files = {}
-    if data_args.train_file is not None:
-        data_files["train"] = data_args.train_file
-    if data_args.validation_file is not None:
-        data_files["validation"] = data_args.validation_file
-    if data_args.test_file is not None:
-        data_files["test"] = data_args.test_file
-    raw_datasets = load_dataset('json', data_files=data_files)
+	# Load pretrained model and tokenizer
+	config = ElectraConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels)
+	tokenizer = KoCharElectraTokenizer.from_pretrained(args.model_name_or_path)
+	model = ElectraForTokenClassification.from_pretrained(args.model_name_or_path, config=config)
 
-    # Set column names
-    if raw_datasets["train"] is not None:
-        column_names = raw_datasets["train"].column_names
-    else:
-        column_names = raw_datasets["validation"].column_names
+	# Set the correspondences label/ID inside the model config
+	model.config.label2id = {l: i for i, l in enumerate(label_list)}
+	model.config.id2label = {i: l for i, l in enumerate(label_list)}
 
-    text_column_name = column_names[0]
-    label_column_name = column_names[1]
+	# Preprocessing the datasets.
+	preprocessor = Preprocessor(args, tokenizer, label_to_id)
 
-    # Get unique labels
-    def get_label_list(labels):
-        unique_labels = set()
-        for label in labels:
-            unique_labels = unique_labels | set(label.split())
-        label_list = list(unique_labels)
-        label_list.sort()
-        return label_list
+	train_dataset = raw_datasets["train"]
+	train_dataset = train_dataset.map(
+		preprocessor.tokenize_and_align_labels,
+		batched=True,
+		num_proc=args.preprocessing_num_workers,
+		desc="Running tokenizer on train dataset",
+	)
 
-    label_list = get_label_list(raw_datasets["train"][label_column_name])
-    label_to_id = {l: i for i, l in enumerate(label_list)}
-    num_labels = len(label_list)
+	eval_dataset = raw_datasets["validation"]
+	eval_dataset = eval_dataset.map(
+		preprocessor.tokenize_and_align_labels,
+		batched=True,
+		num_proc=args.preprocessing_num_workers,
+		desc="Running tokenizer on validation dataset",
+	)
 
-    # Load pretrained model and tokenizer
-    config = ElectraConfig.from_pretrained(
-        model_args.model_name_or_path,
-        num_labels=num_labels,
-    )
+	predict_dataset = raw_datasets["test"]
+	predict_dataset = predict_dataset.map(
+		preprocessor.tokenize_and_align_labels,
+		batched=True,
+		num_proc=args.preprocessing_num_workers,
+		desc="Running tokenizer on prediction dataset",
+	)
 
-    tokenizer = KoCharElectraTokenizer.from_pretrained(
-        model_args.model_name_or_path,
-    )
+	# Set warmup steps
+	total_batch_size = args.per_device_train_batch_size * torch.cuda.device_count()
+	n_total_iterations = int(len(train_dataset) / total_batch_size * args.num_train_epochs)
+	warmup_steps = int(n_total_iterations * args.warmup_ratio)
 
-    model = ElectraForTokenClassification.from_pretrained(
-        model_args.model_name_or_path,
-        config=config,
-    )
+	# Train & Eval configs
+	training_args = TrainingArguments(
+		output_dir=args.output_dir,
+		num_train_epochs=args.num_train_epochs,
+		per_device_train_batch_size=args.per_device_train_batch_size,
+		per_device_eval_batch_size=args.per_device_eval_batch_size,
+		gradient_accumulation_steps=args.gradient_accumulation_steps,
+		learning_rate=args.learning_rate,
+		weight_decay=args.weight_decay,
+		warmup_ratio=args.warmup_ratio,
+		warmup_steps=warmup_steps,
+		fp16=args.fp16,
+		evaluation_strategy=args.evaluation_strategy,
+		logging_steps=args.logging_steps,
+		save_strategy=args.save_strategy,
+		load_best_model_at_end=args.load_best_model_at_end,
+		metric_for_best_model=args.metric_for_best_model,
+	)
 
-    # Set the correspondences label/ID inside the model config
-    model.config.label2id = {l: i for i, l in enumerate(label_list)}
-    model.config.id2label = {i: l for i, l in enumerate(label_list)}
+	# Data collator
+	data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding=True)
 
-    # Preprocessing the datasets.
-    def tokenize_and_align_labels(examples):
-        tokenized_inputs = tokenizer(
-            examples[text_column_name],
-            truncation=True,
-            max_length=data_args.max_seq_length
-        )
+	# Metrics
+	metrics = Metric(label_list)
 
-        labels = []
-        for i, label in enumerate(examples[label_column_name]):
-            label_ids = [-100] + [label_to_id[tag] for tag in label.split()][:data_args.max_seq_length-2]+ [-100]
-            labels.append(label_ids)
+	# Initialize our Trainer
+	trainer = Trainer(
+		model=model,
+		args=training_args,
+		train_dataset=train_dataset if training_args.do_train else None,
+		eval_dataset=eval_dataset if training_args.do_eval else None,
+		data_collator=data_collator,
+		compute_metrics=metrics.compute_metrics,
+	)
 
-        tokenized_inputs["labels"] = labels
-        return tokenized_inputs
+	# Training
+	trainer.train()
+	trainer.save_model()
 
-    if training_args.do_train:
-        if "train" not in raw_datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_dataset = raw_datasets["train"]
-        train_dataset = train_dataset.map(
-            tokenize_and_align_labels,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            desc="Running tokenizer on train dataset",
-        )
+	# Evaluation
+	trainer.evaluate()
 
-    if training_args.do_eval:
-        if "validation" not in raw_datasets:
-            raise ValueError("--do_eval requires a validation dataset")
-        eval_dataset = raw_datasets["validation"]
-        eval_dataset = eval_dataset.map(
-            tokenize_and_align_labels,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            desc="Running tokenizer on validation dataset",
-        )
-
-    if training_args.do_predict:
-        if "test" not in raw_datasets:
-            raise ValueError("--do_predict requires a test dataset")
-        predict_dataset = raw_datasets["test"]
-        predict_dataset = predict_dataset.map(
-            tokenize_and_align_labels,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            desc="Running tokenizer on prediction dataset",
-        )
-
-    # Data collator
-    data_collator = DataCollatorForTokenClassification(
-        tokenizer=tokenizer,
-        padding=True,
-    )
-
-    # Metrics
-    metric = evaluate.load("seqeval")
-
-    def compute_metrics(p):
-        predictions, labels = p
-        predictions = np.argmax(predictions, axis=2)
-
-        # Remove ignored index (special tokens)
-        true_predictions = [
-            [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-        true_labels = [
-            [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-
-        results = metric.compute(predictions=true_predictions, references=true_labels)
-
-        print(classification_report(true_labels, true_predictions))
-
-        return {
-            "precision": results["overall_precision"],
-            "recall": results["overall_recall"],
-            "f1": results["overall_f1"],
-            "accuracy": results["overall_accuracy"],
-        }
-
-    # Initialize our Trainer
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        data_collator=data_collator,
-        compute_metrics=compute_metrics,
-    )
-
-    # Training
-    if training_args.do_train:
-        train_result = trainer.train()
-        metrics = train_result.metrics
-        trainer.save_model()  # Saves the tokenizer too for easy upload
-
-        metrics["train_samples"] = len(train_dataset)
-
-        trainer.log_metrics("train", metrics)
-        trainer.save_metrics("train", metrics)
-        trainer.save_state()
-
-    # Evaluation
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-
-        metrics = trainer.evaluate()
-
-        metrics["eval_samples"] = len(eval_dataset)
-
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
-
+	# Test
+	trainer.evaluate(predict_dataset)
 
 if __name__ == '__main__':
-    main()
+	main()
 
 
 
