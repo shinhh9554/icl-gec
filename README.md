@@ -48,7 +48,13 @@ cd ged
 
 👉 모든 GPU를 활용하여 모델 학습을 수행
 ```
-python train.py
+python train.py \
+  --model_name_or_path monologg/kocharelectra-base-discriminator \
+  --train_file data/ged_train.jsonl \
+  --validation_file data/ged_valid.jsonl \
+  --max_seq_length 128 \
+  --output_dir output \
+  --num_train_epochs 5.0 \
 ```
 
 👉 특정 GPU를 활용하여 모델 학습을 수행

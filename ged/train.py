@@ -19,11 +19,11 @@ def parse_args():
 	parser = argparse.ArgumentParser()
 
 	# Model arguments
-	parser.add_argument("--model_name_or_path", default='gogamza/kobart-base-v2', type=str)
+	parser.add_argument("--model_name_or_path", default='monologg/kocharelectra-base-discriminator', type=str)
 
 	# Dataset arguments
-	parser.add_argument("--train_file", default='data/gec_train.jsonl', type=str)
-	parser.add_argument("--validation_file", default='data/gec_valid.jsonl', type=str)
+	parser.add_argument("--train_file", default='data/ged_train.jsonl', type=str)
+	parser.add_argument("--validation_file", default='data/ged_valid.jsonl', type=str)
 	parser.add_argument("--max_seq_length", default=128, type=int)
 	parser.add_argument("--preprocessing_num_workers", default=1, type=int)
 
@@ -42,7 +42,7 @@ def parse_args():
 	parser.add_argument("--logging_steps", default=50, type=int)
 	parser.add_argument("--save_strategy", default='epoch', type=str)
 	parser.add_argument("--load_best_model_at_end", default=True, type=bool)
-	parser.add_argument("--metric_for_best_model", default='bleu', type=str)
+	parser.add_argument("--metric_for_best_model", default='f1', type=str)
 
 	args = parser.parse_args()
 
@@ -101,13 +101,13 @@ def main():
 		desc="Running tokenizer on validation dataset",
 	)
 
-	predict_dataset = raw_datasets["test"]
-	predict_dataset = predict_dataset.map(
-		preprocessor.tokenize_and_align_labels,
-		batched=True,
-		num_proc=args.preprocessing_num_workers,
-		desc="Running tokenizer on prediction dataset",
-	)
+	# predict_dataset = raw_datasets["test"]
+	# predict_dataset = predict_dataset.map(
+	# 	preprocessor.tokenize_and_align_labels,
+	# 	batched=True,
+	# 	num_proc=args.preprocessing_num_workers,
+	# 	desc="Running tokenizer on prediction dataset",
+	# )
 
 	# Set warmup steps
 	total_batch_size = args.per_device_train_batch_size * torch.cuda.device_count()
@@ -143,8 +143,8 @@ def main():
 	trainer = Trainer(
 		model=model,
 		args=training_args,
-		train_dataset=train_dataset if training_args.do_train else None,
-		eval_dataset=eval_dataset if training_args.do_eval else None,
+		train_dataset=train_dataset,
+		eval_dataset=eval_dataset,
 		data_collator=data_collator,
 		compute_metrics=metrics.compute_metrics,
 	)
@@ -156,8 +156,8 @@ def main():
 	# Evaluation
 	trainer.evaluate()
 
-	# Test
-	trainer.evaluate(predict_dataset)
+	# # Test
+	# trainer.evaluate(predict_dataset)
 
 if __name__ == '__main__':
 	main()
