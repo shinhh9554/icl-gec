@@ -136,6 +136,8 @@ def main():
 	max_length = training_args.generation_max_length
 	num_beams = training_args.generation_num_beams
 	trainer.evaluate(max_length=max_length, num_beams=num_beams, metric_key_prefix="eval")
+	
+	# Test
 
 if __name__ == '__main__':
 	main()
