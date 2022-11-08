@@ -40,7 +40,7 @@
 
 ## 3. How To Run
 
-### 3-1. 문법 오류 교정 모델
+### 3-1. 문법 오류 감지 모델
 👉 ged directory 로 이동
 ```
 cd ged
@@ -59,9 +59,42 @@ python train.py \
 
 👉 특정 GPU를 활용하여 모델 학습을 수행
 ```
-python train.py
+CUDA_VISIBLE_DEVICES=0,2 python train.py \
+  --model_name_or_path monologg/kocharelectra-base-discriminator \
+  --train_file data/ged_train.jsonl \
+  --validation_file data/ged_valid.jsonl \
+  --max_seq_length 128 \
+  --output_dir output \
+  --num_train_epochs 5.0 \
 ```
 
+### 3-2. 문법 오류 교정 모델
+👉 gec directory 로 이동
+```
+cd gec
+```
+
+👉 모든 GPU를 활용하여 모델 학습을 수행
+```
+python train.py \
+  --model_name_or_path gogamza/kobart-base-v2 \
+  --train_file data/gec_train.jsonl \
+  --validation_file data/gec_valid.jsonl \
+  --max_seq_length 128 \
+  --output_dir output \
+  --num_train_epochs 5.0 \
+```
+
+👉 특정 GPU를 활용하여 모델 학습을 수행
+```
+CUDA_VISIBLE_DEVICES=0,2 python train.py \
+  --model_name_or_path gogamza/kobart-base-v2 \
+  --train_file data/gec_train.jsonl \
+  --validation_file data/gec_valid.jsonl \
+  --max_seq_length 128 \
+  --output_dir output \
+  --num_train_epochs 5.0 \
+```
 
 
 
