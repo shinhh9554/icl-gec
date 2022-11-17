@@ -96,6 +96,30 @@ CUDA_VISIBLE_DEVICES=0,2 python train.py \
   --num_train_epochs 5.0 \
 ```
 
+### 3-4. 데이터 전처리
+👉 문법 오류 감지 모델 데이터의 경우 아래 경로에 있는 파일을 실행하여 데이터 전처리를 수행한다.
+```
+cd etc/preprocess
+```
+```
+python annotate_data_ged.py
+```
+👉 문법 오류 교정 모델 데이터의 경우 아래 파일 경로에 있는 파일을 실행하여 데이터 전처리를 수행한다.
+```
+cd etc/preprocess
+```
+```
+python annotate_data_gec.py
+```
+
+### 3-5. 학습 데이터 증강 (노이즈 데이터 생성)
+👉 문법 오류가 없는 문장에 새로운 노이즈를 생성하려면 아래 경로에 있는 파일을 실행하여 노이즈 데이터를 생성한다.
+```
+cd etc/noise_data
+```
+```
+python apply_noise.py
+```
 
 
 # 관련 내용 작성 중 입니다.!
