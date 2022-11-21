@@ -3,15 +3,13 @@ import random
 from g2pk import G2p
 from tqdm import tqdm
 from pathlib import Path
-from kobart import get_kobart_tokenizer
 from GenerateSpellingError import generate_spelling_error
 
 g2p = G2p()
-tokenizer = get_kobart_tokenizer()
 
 
 def main(path):
-    reg = re.compile(r'[a-zA-Zㄱ-ㅎ가-]+')
+    reg = re.compile(r'[a-zA-Zㄱ-ㅎ가-힣]+')
 
     with open(path, 'r', encoding='utf-8') as rf1:
         lines = [i.strip() for i in rf1.readlines()]
