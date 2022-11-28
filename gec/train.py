@@ -24,8 +24,8 @@ def parse_args():
 	# Dataset arguments
 	parser.add_argument("--train_file", default='data/gec_train.jsonl', type=str)
 	parser.add_argument("--validation_file", default='data/gec_valid.jsonl', type=str)
-	parser.add_argument("--max_input_length", default=128, type=int)
-	parser.add_argument("--max_target_length", default=128, type=int)
+	parser.add_argument("--max_input_length", default=64, type=int)
+	parser.add_argument("--max_target_length", default=64, type=int)
 	parser.add_argument("--preprocessing_num_workers", default=1, type=int)
 
 	# Training arguments
