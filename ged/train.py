@@ -13,12 +13,14 @@ from transformers import (
 
 from metric import Metric
 from processor import Preprocessor
+from utils import MODEL_FOR_TOKEN_CLASSIFICATION
 from tokenization_kocharelectra import KoCharElectraTokenizer
 
 def parse_args():
 	parser = argparse.ArgumentParser()
 
 	# Model arguments
+	parser.add_argument("--model_type", default='base', type=str)
 	parser.add_argument("--model_name_or_path", default='monologg/kocharelectra-base-discriminator', type=str)
 
 	# Dataset arguments
@@ -76,7 +78,7 @@ def main():
 	# Load pretrained model and tokenizer
 	config = ElectraConfig.from_pretrained(args.model_name_or_path, num_labels=num_labels)
 	tokenizer = KoCharElectraTokenizer.from_pretrained(args.model_name_or_path)
-	model = ElectraForTokenClassification.from_pretrained(args.model_name_or_path, config=config)
+	model = MODEL_FOR_TOKEN_CLASSIFICATION[args.model_type].from_pretrained(args.model_name_or_path, config=config)
 
 	# Set the correspondences label/ID inside the model config
 	model.config.label2id = {l: i for i, l in enumerate(label_list)}
@@ -100,14 +102,6 @@ def main():
 		num_proc=args.preprocessing_num_workers,
 		desc="Running tokenizer on validation dataset",
 	)
-
-	# predict_dataset = raw_datasets["test"]
-	# predict_dataset = predict_dataset.map(
-	# 	preprocessor.tokenize_and_align_labels,
-	# 	batched=True,
-	# 	num_proc=args.preprocessing_num_workers,
-	# 	desc="Running tokenizer on prediction dataset",
-	# )
 
 	# Set warmup steps
 	total_batch_size = args.per_device_train_batch_size * torch.cuda.device_count()
@@ -155,9 +149,6 @@ def main():
 
 	# Evaluation
 	trainer.evaluate()
-
-	# # Test
-	# trainer.evaluate(predict_dataset)
 
 if __name__ == '__main__':
 	main()
