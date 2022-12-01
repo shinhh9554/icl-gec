@@ -1,10 +1,11 @@
+import os
 import argparse
 
 import torch
+import numpy as np
 from datasets import load_dataset
 from transformers import (
 	ElectraConfig,
-	ElectraForTokenClassification,
 	TrainingArguments,
 	DataCollatorForTokenClassification,
 	set_seed,
@@ -26,11 +27,16 @@ def parse_args():
 	# Dataset arguments
 	parser.add_argument("--train_file", default='data/ged_train.jsonl', type=str)
 	parser.add_argument("--validation_file", default='data/ged_valid.jsonl', type=str)
+	parser.add_argument("--predict_file", default='data/ged_test.jsonl', type=str)
 	parser.add_argument("--max_seq_length", default=128, type=int)
 	parser.add_argument("--preprocessing_num_workers", default=1, type=int)
 
 	# Training arguments
+	parser.add_argument("--crf", default=True, type=bool)
 	parser.add_argument("--seed", default=42, type=int)
+	parser.add_argument("--do_train", default=True, type=bool)
+	parser.add_argument("--do_evaluate", default=True, type=bool)
+	parser.add_argument("--do_predict", default=True, type=bool)
 	parser.add_argument("--output_dir", default='output', type=str)
 	parser.add_argument("--num_train_epochs", default=5.0, type=float)
 	parser.add_argument("--per_device_train_batch_size", default=96, type=int)
@@ -59,7 +65,11 @@ def main():
 	set_seed(args.seed)
 
 	# Loading Datasets
-	data_files = {"train": args.train_file, "validation": args.validation_file}
+	data_files = {
+		"train": args.train_file,
+		"validation": args.validation_file,
+		"test": args.predict_file,
+	}
 	raw_datasets = load_dataset('json', data_files=data_files)
 
 	# Get unique labels
@@ -103,6 +113,14 @@ def main():
 		desc="Running tokenizer on validation dataset",
 	)
 
+	test_dataset = raw_datasets["test"]
+	test_dataset = test_dataset.map(
+		preprocessor.tokenize_and_align_labels,
+		batched=True,
+		num_proc=args.preprocessing_num_workers,
+		desc="Running tokenizer on validation dataset",
+	)
+
 	# Set warmup steps
 	total_batch_size = args.per_device_train_batch_size * torch.cuda.device_count()
 	n_total_iterations = int(len(train_dataset) / total_batch_size * args.num_train_epochs)
@@ -125,13 +143,14 @@ def main():
 		save_strategy=args.save_strategy,
 		load_best_model_at_end=args.load_best_model_at_end,
 		metric_for_best_model=args.metric_for_best_model,
+		do_predict=args.do_predict
 	)
 
 	# Data collator
 	data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding=True)
 
 	# Metrics
-	metrics = Metric(label_list)
+	metrics = Metric(args, model, label_list)
 
 	# Initialize our Trainer
 	trainer = Trainer(
@@ -144,11 +163,38 @@ def main():
 	)
 
 	# Training
-	trainer.train()
-	trainer.save_model()
+	if training_args.do_train:
+		trainer.train()
+		trainer.save_model()  # Saves the tokenizer too for easy upload
 
 	# Evaluation
-	trainer.evaluate()
+	if training_args.do_eval:
+		trainer.evaluate()
+
+	# Predict
+	if training_args.do_predict:
+		predictions, labels, metrics = trainer.predict(test_dataset)
+		if args.crf:
+			masks = torch.tensor(labels != -100).cuda()
+			masks[:, 0] = True
+			predictions = torch.tensor(predictions).cuda()
+			predictions = model.decode(predictions, masks)
+		else:
+			predictions = np.argmax(predictions, axis=2)
+
+		# Remove ignored index (special tokens)
+		true_predictions = [
+			[label_list[p] for (p, l) in zip(prediction, label) if l != -100]
+			for prediction, label in zip(predictions, labels)
+		]
+
+		# Save predictions
+		output_test_predictions_file = os.path.join(training_args.output_dir, "test_predictions.txt")
+		if trainer.is_world_process_zero():
+			with open(output_test_predictions_file, "w") as writer:
+				for prediction in true_predictions:
+					writer.write(" ".join(prediction) + "\n")
+
 
 if __name__ == '__main__':
 	main()

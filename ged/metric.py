@@ -1,14 +1,23 @@
+import torch
 import numpy as np
 from datasets import load_metric
 
 class Metric:
-	def __init__(self, label_list):
+	def __init__(self, args, model, label_list):
+		self.args = args
+		self.model = model
 		self.label_list = label_list
 		self.metric = load_metric("seqeval")
 
 	def compute_metrics(self, eval_preds):
 		predictions, labels = eval_preds
-		predictions = np.argmax(predictions, axis=2)
+		if self.args.crf:
+			masks = torch.tensor(labels != -100).cuda()
+			masks[:, 0] = True
+			predictions = torch.tensor(predictions).cuda()
+			predictions = self.model.decode(predictions, masks)
+		else:
+			predictions = np.argmax(predictions, axis=2)
 
 		# Remove ignored index (special tokens)
 		true_predictions = [
