@@ -8,12 +8,13 @@ import random
 import argparse
 import numpy as np
 from tqdm import tqdm
+import torch.nn.functional as F
 from konlpy.tag import Mecab
 
 from ged.tokenization_kocharelectra import KoCharElectraTokenizer
 from ged.utils import MODEL_FOR_TOKEN_CLASSIFICATION
 
-from transformers import BartForConditionalGeneration, PreTrainedTokenizerFast
+from transformers import BartForConditionalGeneration, PreTrainedTokenizerFast, ElectraTokenizer, ElectraForSequenceClassification
 
 mecab = Mecab()
 random.seed(13)
@@ -26,7 +27,7 @@ def parse_args():
     parser.add_argument("--ged_model_type", default='base', type=str)
     parser.add_argument("--ged_save_path", default='ged/output/checkpoint-3808', type=str)
     parser.add_argument("--gec_save_path", default='gec/output/checkpoint-4188', type=str)
-    parser.add_argument("--cls_save_path", default='output/checkpoint-3808', type=str)
+    parser.add_argument("--cls_save_path", default='cls/models/', type=str)
 
     # Dataset arguments
     parser.add_argument("--error", default='너가 굴도 좋아하나', type=str)
@@ -35,6 +36,36 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
+
+def cls_inference(model, tokenizer, device, error_words, correct_words):
+    examples = []
+    for error_word, correct_word in zip(error_words, correct_words):
+        source = f'{error_word} [SEP] {correct_word}'
+        examples.append(source)
+
+    inputs = tokenizer(
+        examples,
+        max_length=128,
+        padding="max_length",
+        truncation=True,
+    )
+
+    result = []
+
+    inputs = {
+        "input_ids": torch.tensor(inputs.data['input_ids'], dtype=torch.long).to(device),
+        "attention_mask": torch.tensor(inputs.data['attention_mask'], dtype=torch.long).to(device)
+    }
+
+    model.eval()
+    with torch.no_grad():
+        outputs = model(**inputs)[0]
+        prob = F.softmax(outputs, dim=1)
+        for i in range(len(prob)):
+            result.append(torch.argmax(prob[i]))
+
+    return result
 
 
 def gec_inference(model, tokenizer, device, error):
@@ -99,11 +130,11 @@ def inference_fn():
     gec_model = gec_model.to(device)
     gec_model.eval()
 
-    # # noise classification tokenizer 및 model load
-    # tokenizer = ElectraTokenizer.from_pretrained()
-    # nc_model = ElectraForSequenceClassification.from_pretrained()
-    # nc_model.to(device)
-    # nc_model.eval()
+    # noise classification tokenizer 및 model load
+    nc_tokenizer = ElectraTokenizer.from_pretrained('monologg/koelectra-base-v3-discriminator')
+    nc_model = ElectraForSequenceClassification.from_pretrained(args.cls_save_path, num_labels=6)
+    nc_model.to(device)
+    nc_model.eval()
 
     # 입력 데이터
     error = args.error
@@ -134,7 +165,12 @@ def inference_fn():
             c_words_lst.append(c_word)
             if 'E' not in ged_tags:
                 e_flag = False
+
         output = ''.join(annotation)
+        result = cls_inference(nc_model, nc_tokenizer, device, e_words_lst, c_words_lst)
+        for e_w, c_w, tag in zip(e_words_lst, c_words_lst, result):
+            print(f'{e_w}\t{c_w}\t{tag}')
+
     print(f'{error}\t{output}\t{correct}')
 
 
