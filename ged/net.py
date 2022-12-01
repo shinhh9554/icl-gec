@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from transformers import ElectraModel, ElectraPreTrainedModel
+from transformers.modeling_outputs import TokenClassifierOutput
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torchcrf import CRF
 
@@ -24,7 +25,9 @@ class ElectraCrfForTokenClassification(ElectraPreTrainedModel):
             head_mask=None,
             inputs_embeds=None,
             labels=None,
+            return_dict=None,
     ):
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         outputs = self.electra(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -37,20 +40,24 @@ class ElectraCrfForTokenClassification(ElectraPreTrainedModel):
         sequence_output = self.dropout(sequence_output)
         logits = self.classifier(sequence_output)  # add hidden states and attention if they are here
 
+        loss = None
         if labels is not None:
             labels = torch.where(labels >= 0, labels, torch.zeros_like(labels))
             loss = self.crf(emissions=logits, tags=labels, mask=attention_mask.byte())
-            tags = self.crf.decode(logits, attention_mask.byte())
-            outputs = (-1 * loss, tags,) + outputs[1:]
 
-        else:
-            if attention_mask is not None:
-                tags = self.crf.decode(logits, attention_mask.byte())
-            else:
-                tags = self.crf.decode(logits)
-            outputs = (tags,) + outputs[1:]
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
 
-        return outputs
+        return TokenClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+
+    def decode(self, logits, attention_mask):
+        return self.crf.decode(logits, attention_mask.byte())
 
 
 class ElectraBiGRUForTokenClassification(ElectraPreTrainedModel):
@@ -125,7 +132,10 @@ class ElectraBiGRUFCRForTokenClassification(ElectraPreTrainedModel):
             head_mask=None,
             inputs_embeds=None,
             labels=None,
+            return_dict=None
     ):
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
         outputs = self.electra(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -139,20 +149,24 @@ class ElectraBiGRUFCRForTokenClassification(ElectraPreTrainedModel):
         sequence_output, hc = self.bi_gru(sequence_output)
         logits = self.classifier(sequence_output)
 
+        loss = None
         if labels is not None:
             labels = torch.where(labels >= 0, labels, torch.zeros_like(labels))
             loss = self.crf(emissions=logits, tags=labels, mask=attention_mask.byte())
-            tags = self.crf.decode(logits, attention_mask.byte())
-            outputs = (-1 * loss, tags,) + outputs[1:]
 
-        else:
-            if attention_mask is not None:
-                tags = self.crf.decode(logits, attention_mask.byte())
-            else:
-                tags = self.crf.decode(logits)
-            outputs = (tags,) + outputs[1:]
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
 
-        return outputs
+        return TokenClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+
+    def decode(self, logits, attention_mask):
+        return self.crf.decode(logits, attention_mask.byte())
 
 
 class ElectraBiLSTMForTokenClassification(ElectraPreTrainedModel):
@@ -227,7 +241,9 @@ class ElectraBiLSTMFCRForTokenClassification(ElectraPreTrainedModel):
             head_mask=None,
             inputs_embeds=None,
             labels=None,
+            return_dict=None
     ):
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         outputs = self.electra(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -241,18 +257,22 @@ class ElectraBiLSTMFCRForTokenClassification(ElectraPreTrainedModel):
         sequence_output, hc = self.bi_lstm(sequence_output)
         logits = self.classifier(sequence_output)
 
+        loss = None
         if labels is not None:
             labels = torch.where(labels >= 0, labels, torch.zeros_like(labels))
             loss = self.crf(emissions=logits, tags=labels, mask=attention_mask.byte())
-            tags = self.crf.decode(logits, attention_mask.byte())
-            outputs = (-1 * loss, tags,) + outputs[1:]
 
-        else:
-            if attention_mask is not None:
-                tags = self.crf.decode(logits, attention_mask.byte())
-            else:
-                tags = self.crf.decode(logits)
-            outputs = (tags,) + outputs[1:]
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
 
-        return outputs
+        return TokenClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+
+    def decode(self, logits, attention_mask):
+        return self.crf.decode(logits, attention_mask.byte())
 
