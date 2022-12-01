@@ -15,7 +15,7 @@ def main(path):
         lines = [i.strip() for i in rf1.readlines()]
 
     noise_dict = {}
-    for noise_corpus in tqdm(open('noise_data/new_noise_sample.txt', 'r', encoding='utf-8').readlines()):
+    for noise_corpus in tqdm(open('noise_data/new_noise_sample.tsv', 'r', encoding='utf-8').readlines()):
         noise_corpus = noise_corpus.replace('\n', '')
         error, correct, label = noise_corpus.split('\t')
         if reg.match(correct):

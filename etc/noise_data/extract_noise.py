@@ -4,7 +4,6 @@ from konlpy.tag import  Mecab
 from diff_match_patch import diff_match_patch
 
 
-
 class ErrorExtraction:
     def __init__(self):
         self.mecab = Mecab()

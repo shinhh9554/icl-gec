@@ -384,7 +384,7 @@ class ErrorAnnotation:
                 self.n = 1
 
         if len(error) != len(self.error_label):
-            return [], [], [], [], []
+            return [], []
 
         self.annotation = ''.join(self.annotation)
 
