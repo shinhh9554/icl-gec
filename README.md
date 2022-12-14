@@ -127,26 +127,15 @@ CUDA_VISIBLE_DEVICES=0,2 python train.py \
 cd cls
 ```
 
-👉 모든 GPU를 활용하여 모델 학습을 수행
+👉 모델 학습 수행
 ```
-python train.py \
-  --model_name_or_path gogamza/kobart-base-v2 \
-  --train_file data/gec_train.jsonl \
-  --validation_file data/gec_valid.jsonl \
+python main.py \
+  --model_type koelectra \
+  --data_path data/new_noise_sample.txt \
+  --model_dir "./models" \
+  --num_train_epochs 5 \
+  --batch_size 180 \
   --max_seq_length 128 \
-  --output_dir output \
-  --num_train_epochs 5.0 \
-```
-
-👉 특정 GPU를 활용하여 모델 학습을 수행
-```
-CUDA_VISIBLE_DEVICES=0,2 python train.py \
-  --model_name_or_path gogamza/kobart-base-v2 \
-  --train_file data/gec_train.jsonl \
-  --validation_file data/gec_valid.jsonl \
-  --max_seq_length 128 \
-  --output_dir output \
-  --num_train_epochs 5.0 \
 ```
 
 
