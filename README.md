@@ -31,12 +31,37 @@
 
 * 문법 오류 교정 모델은 주어진 문법 오류 문장과 위치 정보를 통해 문법 오류 문구를 순차적으로 교정하는 역할을 수행함.
 * [SKT-AI/KoBART](https://github.com/SKT-AI/KoBART)을 기반으로 아래와 같이 문법적으로 오류가 난 영역을 특수 토큰으로 감싼 후 순차적으로 문법 오류를 교정
+* 학습 데이터 샘플
 ```
 {"error": "간편하겐 <unused0>정말강추인데<unused1>", "correct": "정말 강추인데"}
 {"error": "그때그때 그라인더에 갈면 향이 정말 <unused0>좋아요<unused1>", "correct": "좋아요."}
 {"error": "커피 <unused0>안마시지만<unused1> 이뻐서 일리는 사고싶어요ㅋㅋ", "correct": "안 마시지만"}
 {"error": "커피 안 마시지만 이뻐서 일리는 <unused0>사고싶어요ㅋㅋ<unused1>", "correct": "사고 싶어요. ㅋㅋ"}
 ```
+
+
+### 2-3. 문법 오류 유형 분류 모델
+
+* 문법 오류 교정 모델은 주어진 문법 오류 문장과 위치 정보를 통해 문법 오류 문구를 순차적으로 교정하는 역할을 수행함.
+* [monologg/KoCharELECTRA](https://github.com/monologg/KoCharELECTRA) 을 파인튜닝하여 모델을 구축함.
+* 학습 데이터 샘플
+
+| 오류 문구       | 교정 문구        | 오류 유형   |
+|-------------|--------------|---------|
+| 줬는데 리쁘드랑    | 줬는데 이쁘더라     | 5       |
+| 줬는데 리쁘드랑~~~ | 줬는데 이쁘더라~~~  | 5       |
+| 줬는데 지가봐놓고   | 줬는데 자기가 봐 놓고 | 5       |
+| 줬다고 가는      | 줬다고 걔는       | 4       |
+| 줬다고 가는      | 줬다고? 걔는      | 4       |
+| 쥐똥만큼밖에      | 쥐똥만큼 밖에      | 1       |
+| 쥐똥만하게       | 쥐똥만 하게       | 1       |
+
+<br/>
+
+* 오류 유형 분류 표
+
+<img width="453" alt="스크린샷 2022-12-14 오후 4 35 21" src="https://user-images.githubusercontent.com/57481142/207533835-e8141bfb-6c53-48b7-ab4a-60237bdeae68.png">
+
 
 ## 3. How To Run
 
@@ -95,6 +120,35 @@ CUDA_VISIBLE_DEVICES=0,2 python train.py \
   --output_dir output \
   --num_train_epochs 5.0 \
 ```
+
+### 3-3. 문법 오류 유형 분류 모델
+👉 cls directory 로 이동
+```
+cd cls
+```
+
+👉 모든 GPU를 활용하여 모델 학습을 수행
+```
+python train.py \
+  --model_name_or_path gogamza/kobart-base-v2 \
+  --train_file data/gec_train.jsonl \
+  --validation_file data/gec_valid.jsonl \
+  --max_seq_length 128 \
+  --output_dir output \
+  --num_train_epochs 5.0 \
+```
+
+👉 특정 GPU를 활용하여 모델 학습을 수행
+```
+CUDA_VISIBLE_DEVICES=0,2 python train.py \
+  --model_name_or_path gogamza/kobart-base-v2 \
+  --train_file data/gec_train.jsonl \
+  --validation_file data/gec_valid.jsonl \
+  --max_seq_length 128 \
+  --output_dir output \
+  --num_train_epochs 5.0 \
+```
+
 
 ### 3-4. 데이터 전처리
 👉 문법 오류 감지 모델 데이터의 경우 아래 경로에 있는 파일을 실행하여 데이터 전처리를 수행한다.
